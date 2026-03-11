@@ -1,30 +1,47 @@
+﻿try {
+    $rawUI = $Host.UI.RawUI
+
+    $width = 68
+    $height = 20
+    $bufferHeight = 500
+
+    if ($rawUI.BufferSize.Width -lt $width) {
+        $rawUI.BufferSize = New-Object Management.Automation.Host.Size($width, $rawUI.BufferSize.Height)
+    }
+
+    $rawUI.WindowSize = New-Object Management.Automation.Host.Size($width, $height)
+    $rawUI.BufferSize = New-Object Management.Automation.Host.Size($width, $bufferHeight)
+}
+catch {
+}
+
 Add-Type -AssemblyName Microsoft.VisualBasic
 
 $githubUrl = "https://github.com/MrcVnz"
 $cleanMode = 1
 
-$folderMap = [ordered]@{
-    "1" = @{
-        Label = "User TEMP"
-        Path  = $env:TEMP
-    }
-    "2" = @{
-        Label = "Windows TEMP"
-        Path  = "C:\Windows\Temp"
-    }
-    "3" = @{
-        Label = "Prefetch"
-        Path  = "C:\Windows\Prefetch"
-    }
+$targets = @(
+    @{ Key = "1"; Name = "User TEMP"; Path = $env:TEMP },
+    @{ Key = "2"; Name = "Windows TEMP"; Path = "C:\Windows\Temp" },
+    @{ Key = "3"; Name = "Prefetch"; Path = "C:\Windows\Prefetch" }
+)
+
+function Is-Admin {
+    $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($id)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
-function Show-Top {
+function Show-Header {
     Clear-Host
-    Write-Host "Running as Administrator..." -ForegroundColor Cyan
+
+    Write-Host "╔══════════════════════════════════════╗" -ForegroundColor Cyan
+    Write-Host "║              CLEARTRASH              ║" -ForegroundColor Cyan
+    Write-Host "╚══════════════════════════════════════╝" -ForegroundColor Cyan
     Write-Host ""
 }
 
-function Get-ModeName {
+function Get-ModeText {
     switch ($cleanMode) {
         1 { "Recycle Bin" }
         2 { "Permanent Delete" }
@@ -33,112 +50,113 @@ function Get-ModeName {
     }
 }
 
-function Format-Size {
-    param(
-        [Int64]$Bytes
-    )
-
-    if ($Bytes -ge 1GB) {
-        return ("{0:N2} GB" -f ($Bytes / 1GB))
-    }
-
-    if ($Bytes -ge 1MB) {
-        return ("{0:N2} MB" -f ($Bytes / 1MB))
-    }
-
-    if ($Bytes -ge 1KB) {
-        return ("{0:N2} KB" -f ($Bytes / 1KB))
-    }
-
-    return ("{0} B" -f $Bytes)
+function Format-Size($bytes) {
+    if ($bytes -ge 1TB) { return "{0:N2} TB" -f ($bytes / 1TB) }
+    if ($bytes -ge 1GB) { return "{0:N2} GB" -f ($bytes / 1GB) }
+    if ($bytes -ge 1MB) { return "{0:N2} MB" -f ($bytes / 1MB) }
+    if ($bytes -ge 1KB) { return "{0:N2} KB" -f ($bytes / 1KB) }
+    return "$bytes B"
 }
 
-function Get-EntrySize {
-    param(
-        [Parameter(Mandatory = $true)]
-        $Entry
-    )
+function Get-Target($key) {
+    return $targets | Where-Object { $_.Key -eq $key } | Select-Object -First 1
+}
+
+function Get-FolderSize($path) {
+    if (!(Test-Path -LiteralPath $path)) {
+        return 0
+    }
 
     try {
-        if (-not $Entry.PSIsContainer) {
-            return [Int64]$Entry.Length
-        }
-
-        $size = 0L
-
-        Get-ChildItem -LiteralPath $Entry.FullName -Force -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
-            $size += [Int64]$_.Length
-        }
-
-        return $size
+        $sum = (Get-ChildItem -LiteralPath $path -Force -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+        if ($null -eq $sum) { return 0 }
+        return [int64]$sum
     }
     catch {
-        return 0L
+        return 0
     }
 }
 
 function Show-MainMenu {
-    Show-Top
+    Show-Header
 
-    Write-Host "===================================" -ForegroundColor Cyan
-    Write-Host "           CLEARTRASH              " -ForegroundColor Cyan
-    Write-Host "===================================" -ForegroundColor Cyan
-    Write-Host ""
-
-    Write-Host "Current mode: " -NoNewline
+    Write-Host "Mode: " -NoNewline
     switch ($cleanMode) {
         1 { Write-Host "Recycle Bin" -ForegroundColor Green }
         2 { Write-Host "Permanent Delete" -ForegroundColor Yellow }
-        3 { Write-Host "Recycle Bin + Empty Bin" -ForegroundColor Magenta }
-        default { Write-Host "Unknown" -ForegroundColor Red }
+        3 { Write-Host "Recycle + Empty Bin" -ForegroundColor Magenta }
     }
 
     Write-Host ""
-    Write-Host "1 - Start cleaning"
-    Write-Host "2 - Change cleaning mode"
-    Write-Host "3 - Creator GitHub"
-    Write-Host "4 - Exit"
+    Write-Host "[1] Start cleaning" -ForegroundColor White
+    Write-Host "[2] Change mode" -ForegroundColor White
+    Write-Host "[3] Creator GitHub" -ForegroundColor White
+    Write-Host "[4] Exit" -ForegroundColor White
     Write-Host ""
 }
 
-function Pick-Folders {
-    Show-Top
+function Show-ProgressBar($current, $total) {
+    if ($total -le 0) {
+        return
+    }
 
-    Write-Host "Choose what you want to clean:" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "1 - User TEMP"
-    Write-Host "2 - Windows TEMP"
-    Write-Host "3 - Prefetch"
-    Write-Host ""
-    Write-Host "Examples: 1   or   1,2   or   1,2,3" -ForegroundColor DarkGray
+    $percent = [math]::Floor(($current / $total) * 100)
+    $width = 24
+    $filled = [math]::Floor(($percent / 100) * $width)
+
+    $bar = ("█" * $filled).PadRight($width, "░")
+    $line = "[{0}] {1,3}%  {2}/{3}" -f $bar, $percent, $current, $total
+
+    Write-Host -NoNewline "`r$line"
+}
+
+function Select-Folders {
+    Show-Header
+
+    Write-Host "Choose what to clean" -ForegroundColor Yellow
+    Write-Host "────────────────────" -ForegroundColor DarkGray
     Write-Host ""
 
-    $raw = Read-Host "Selection"
+    foreach ($target in $targets) {
+        Write-Host ("[{0}] {1}" -f $target.Key, $target.Name)
+    }
 
-    if ([string]::IsNullOrWhiteSpace($raw)) {
+    Write-Host ""
+    Write-Host "Type: 1   or   1,2   or   all" -ForegroundColor DarkGray
+    Write-Host ""
+
+    $inputValue = Read-Host "Selection"
+
+    if ([string]::IsNullOrWhiteSpace($inputValue)) {
         return @()
     }
 
-    $picked = @()
+    if ($inputValue.Trim().ToLower() -eq "all") {
+        return $targets.Key
+    }
 
-    foreach ($part in ($raw -split ",")) {
+    $selected = @()
+
+    foreach ($part in ($inputValue -split ",")) {
         $key = $part.Trim()
-        if ($folderMap.Contains($key) -and $picked -notcontains $key) {
-            $picked += $key
+        if ($targets.Key -contains $key -and $selected -notcontains $key) {
+            $selected += $key
         }
     }
 
-    return $picked
+    return $selected
 }
 
 function Change-Mode {
-    Show-Top
+    Show-Header
 
-    Write-Host "Cleaning mode:" -ForegroundColor Yellow
+    Write-Host "Cleaning mode" -ForegroundColor Yellow
+    Write-Host "─────────────" -ForegroundColor DarkGray
     Write-Host ""
-    Write-Host "1 - Send files to Recycle Bin"
-    Write-Host "2 - Permanently delete files"
-    Write-Host "3 - Send to Recycle Bin and empty it after cleaning"
+
+    Write-Host "[1] Send to Recycle Bin"
+    Write-Host "[2] Permanent Delete"
+    Write-Host "[3] Recycle + Empty Bin"
     Write-Host ""
 
     $choice = Read-Host "Select mode"
@@ -150,27 +168,94 @@ function Change-Mode {
         default {
             Write-Host ""
             Write-Host "Invalid option." -ForegroundColor Red
-            Start-Sleep -Seconds 1
+            Start-Sleep 1
         }
     }
 }
 
-function Show-Targets {
-    param(
-        [string[]]$Paths
-    )
-
-    Show-Top
-    Write-Host "Starting cleanup..." -ForegroundColor Cyan
-    Write-Host "Target folders:" -ForegroundColor Cyan
-
-    foreach ($path in $Paths) {
-        Write-Host (" - {0}" -f $path)
+function Ask-LogSettings {
+    $result = @{
+        Enabled = $false
+        Folder = ""
     }
 
     Write-Host ""
-    Write-Host "Press SPACE to pause the cleanup." -ForegroundColor DarkGray
-    Write-Host ""
+    $saveLog = Read-Host "Save a cleanup log? (Y/N)"
+
+    if ($saveLog -notmatch '^(?i)y(es)?$') {
+        return $result
+    }
+
+    while ($true) {
+        Write-Host ""
+        $folder = Read-Host "Log folder (type 0 to cancel)"
+
+        if ($folder -eq "0") {
+            return $result
+        }
+
+        if ([string]::IsNullOrWhiteSpace($folder)) {
+            Write-Host "Invalid folder." -ForegroundColor Red
+            continue
+        }
+
+        if (!(Test-Path -LiteralPath $folder)) {
+            $create = Read-Host "Folder does not exist. Create it? (Y/N)"
+            if ($create -match '^(?i)y(es)?$') {
+                try {
+                    New-Item -ItemType Directory -Path $folder -Force | Out-Null
+                }
+                catch {
+                    Write-Host "Could not create folder." -ForegroundColor Red
+                    continue
+                }
+            }
+            else {
+                continue
+            }
+        }
+
+        if (Test-Path -LiteralPath $folder -PathType Container) {
+            $result.Enabled = $true
+            $result.Folder = $folder
+            return $result
+        }
+
+        Write-Host "Invalid folder." -ForegroundColor Red
+    }
+}
+
+function Save-Log($logFolder, $selectedTargets, $modeText, $cleaned, $skipped, $beforeText, $afterText, $freedText, $startTime, $endTime, $duration) {
+    try {
+        $fileName = "ClearTrash_{0}.log" -f $startTime.ToString("yyyy-MM-dd_HH-mm-ss")
+        $logPath = Join-Path $logFolder $fileName
+
+        $lines = @(
+            "ClearTrash Cleanup Log"
+            "----------------------"
+            "Started:  $($startTime.ToString('yyyy-MM-dd HH:mm:ss'))"
+            "Finished: $($endTime.ToString('yyyy-MM-dd HH:mm:ss'))"
+            "Duration: $([Math]::Round($duration.TotalSeconds, 2)) seconds"
+            "Mode:     $modeText"
+            "Cleaned:  $cleaned"
+            "Skipped:  $skipped"
+            "Before:   $beforeText"
+            "After:    $afterText"
+            "Freed:    $freedText"
+            ""
+            "Target folders:"
+        )
+
+        foreach ($target in $selectedTargets) {
+            $lines += " - $($target.Name): $($target.Path)"
+        }
+
+        Set-Content -LiteralPath $logPath -Value $lines -Encoding UTF8
+        return $logPath
+    }
+    catch {
+        return $null
+    }
 }
 
 function Pause-Menu {
@@ -202,185 +287,100 @@ function After-CleanupMenu {
     return $choice
 }
 
-function Ask-LogSettings {
-    $result = @{
-        Enabled = $false
-        Folder  = $null
-    }
-
-    Write-Host ""
-    $saveLog = Read-Host "Save a cleanup log? (Y/N)"
-
-    if ($saveLog -notmatch '^(?i)y(es)?$') {
-        return $result
-    }
-
-    while ($true) {
-        Write-Host ""
-        Write-Host "Type the folder where the log should be saved." -ForegroundColor Yellow
-        Write-Host "Example: C:\Logs" -ForegroundColor DarkGray
-        Write-Host "Type 0 to cancel log saving." -ForegroundColor DarkGray
-        Write-Host ""
-
-        $folder = Read-Host "Log folder"
-
-        if ($folder -eq "0") {
-            return $result
-        }
-
-        if ([string]::IsNullOrWhiteSpace($folder)) {
-            Write-Host "Folder cannot be empty." -ForegroundColor Red
-            continue
-        }
-
-        if (Test-Path -LiteralPath $folder -PathType Container) {
-            $result.Enabled = $true
-            $result.Folder = $folder
-            return $result
-        }
-
-        Write-Host "That folder does not exist." -ForegroundColor Red
-    }
-}
-
-function Write-CleanupLog {
-    param(
-        [string]$LogFolder,
-        [string[]]$TargetPaths,
-        [string]$ModeName,
-        [int]$Cleaned,
-        [int]$Skipped,
-        [string]$SpaceCleaned,
-        [datetime]$StartedAt,
-        [datetime]$FinishedAt
-    )
-
-    try {
-        $fileName = "ClearTrash_{0}.log" -f $StartedAt.ToString("yyyy-MM-dd_HH-mm-ss")
-        $logPath = Join-Path $LogFolder $fileName
-
-        $lines = @()
-        $lines += "ClearTrash Cleanup Log"
-        $lines += "----------------------"
-        $lines += "Started:  $($StartedAt.ToString('yyyy-MM-dd HH:mm:ss'))"
-        $lines += "Finished: $($FinishedAt.ToString('yyyy-MM-dd HH:mm:ss'))"
-        $lines += "Mode:     $ModeName"
-        $lines += "Cleaned:  $Cleaned"
-        $lines += "Skipped:  $Skipped"
-        $lines += "Space:    $SpaceCleaned"
-        $lines += ""
-        $lines += "Target folders:"
-
-        foreach ($path in $TargetPaths) {
-            $lines += " - $path"
-        }
-
-        Set-Content -LiteralPath $logPath -Value $lines -Encoding UTF8
-        return $logPath
-    }
-    catch {
-        return $null
-    }
-}
-
-function Send-ToBin {
-    param(
-        [Parameter(Mandatory = $true)]
-        $Entry
-    )
-
-    if ($Entry.PSIsContainer) {
+function Remove-ToBin($item) {
+    if ($item.PSIsContainer) {
         [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory(
-            $Entry.FullName,
+            $item.FullName,
             [Microsoft.VisualBasic.FileIO.UIOption]::OnlyErrorDialogs,
             [Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin
         )
     }
     else {
         [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile(
-            $Entry.FullName,
+            $item.FullName,
             [Microsoft.VisualBasic.FileIO.UIOption]::OnlyErrorDialogs,
             [Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin
         )
     }
 }
 
-function Delete-Forever {
-    param(
-        [Parameter(Mandatory = $true)]
-        $Entry
-    )
-
-    Remove-Item -LiteralPath $Entry.FullName -Force -Recurse -ErrorAction Stop
+function Remove-Permanent($item) {
+    Remove-Item -LiteralPath $item.FullName -Force -Recurse -ErrorAction Stop
 }
 
-function Empty-Bin {
+function Empty-Recycle {
     try {
-        Clear-RecycleBin -Force -ErrorAction Stop | Out-Null
+        Clear-RecycleBin -Force -ErrorAction SilentlyContinue | Out-Null
     }
     catch {
     }
 }
 
-function Remove-OneItem {
-    param(
-        [Parameter(Mandatory = $true)]
-        $Entry
-    )
-
+function Remove-SelectedItem($item) {
     switch ($cleanMode) {
-        1 { Send-ToBin -Entry $Entry }
-        2 { Delete-Forever -Entry $Entry }
-        3 { Send-ToBin -Entry $Entry }
+        1 { Remove-ToBin $item }
+        2 { Remove-Permanent $item }
+        3 { Remove-ToBin $item }
     }
 }
 
-function Start-Cleaning {
-    param(
-        [string[]]$Selection
-    )
-
-    if (-not $Selection -or $Selection.Count -eq 0) {
-        Show-Top
+function Start-Cleanup($selection) {
+    if (!$selection -or $selection.Count -eq 0) {
+        Show-Header
         Write-Host "No valid folder was selected." -ForegroundColor Red
-        Start-Sleep -Seconds 1
+        Start-Sleep 1
         return "menu"
     }
 
-    $targetPaths = @()
+    $selectedTargets = @()
 
-    foreach ($key in $Selection) {
-        if ($folderMap.Contains($key)) {
-            $targetPaths += $folderMap[$key].Path
+    foreach ($key in $selection) {
+        $target = Get-Target $key
+        if ($target) {
+            $selectedTargets += $target
         }
     }
 
-    if (-not $targetPaths -or $targetPaths.Count -eq 0) {
-        Show-Top
+    if ($selectedTargets.Count -eq 0) {
+        Show-Header
         Write-Host "No valid folder was selected." -ForegroundColor Red
-        Start-Sleep -Seconds 1
+        Start-Sleep 1
         return "menu"
     }
 
     $logSettings = Ask-LogSettings
-    $startedAt = Get-Date
+    $startTime = Get-Date
+    $beforeBytes = 0
 
-    Show-Targets -Paths $targetPaths
+    foreach ($target in $selectedTargets) {
+        $beforeBytes += Get-FolderSize $target.Path
+    }
 
-    $items = New-Object System.Collections.Generic.List[object]
+    Show-Header
+	Write-Host "Starting cleanup" -ForegroundColor Cyan
+	Write-Host "────────────────" -ForegroundColor DarkGray
+	Write-Host ""
 
-    foreach ($path in $targetPaths) {
-        if (Test-Path -LiteralPath $path) {
-            Get-ChildItem -LiteralPath $path -Force -ErrorAction SilentlyContinue | ForEach-Object {
-                $items.Add($_)
-            }
+	Write-Host "Targets:" -ForegroundColor Yellow
+	foreach ($target in $selectedTargets) {
+    Write-Host (" • {0}" -f $target.Name)
+}
+
+	Write-Host ""
+	Write-Host "Press SPACE to pause" -ForegroundColor DarkGray
+	Write-Host ""
+
+    $items = @()
+
+    foreach ($target in $selectedTargets) {
+        if (Test-Path -LiteralPath $target.Path) {
+            $items += Get-ChildItem -LiteralPath $target.Path -Force -ErrorAction SilentlyContinue
         }
     }
 
     $total = $items.Count
     $cleaned = 0
     $skipped = 0
-    $cleanedBytes = 0L
 
     if ($total -eq 0) {
         Write-Host "Nothing was found to clean." -ForegroundColor Yellow
@@ -392,67 +392,79 @@ function Start-Cleaning {
         }
     }
 
-    for ($i = 0; $i -lt $items.Count; $i++) {
-        $item = $items[$i]
-        $current = $i + 1
-        $percent = [math]::Floor(($current / $total) * 100)
+for ($i = 0; $i -lt $items.Count; $i++) {
 
-        Write-Progress -Activity "Cleaning files" -Status ("{0}% completed" -f $percent) -PercentComplete $percent
+    $item = $items[$i]
+    $current = $i + 1
 
-        if ([Console]::KeyAvailable) {
-            $key = [Console]::ReadKey($true)
+    Show-ProgressBar $current $total
 
-            if ($key.Key -eq [ConsoleKey]::Spacebar) {
-                Write-Progress -Activity "Cleaning files" -Completed
+    if ([Console]::KeyAvailable) {
+        $key = [Console]::ReadKey($true)
+        if ($key.Key -eq [ConsoleKey]::Spacebar) {
 
-                $pauseChoice = Pause-Menu
-                if ($pauseChoice -eq "2") {
-                    return "menu"
-                }
+            Write-Host ""
 
-                Show-Targets -Paths $targetPaths
+            $pauseChoice = Pause-Menu
+            if ($pauseChoice -eq "2") {
+                return "menu"
             }
-        }
 
-        try {
-            $entrySize = Get-EntrySize -Entry $item
-            Remove-OneItem -Entry $item
-            $cleaned++
-            $cleanedBytes += $entrySize
-        }
-        catch {
-            $skipped++
+            Show-Header
+            Write-Host "Resuming cleanup..." -ForegroundColor Cyan
+            Write-Host ""
         }
     }
 
-    Write-Progress -Activity "Cleaning files" -Completed
+    try {
+        Remove-SelectedItem $item
+        $cleaned++
+    }
+    catch {
+        $skipped++
+    }
+}
+
+Write-Host ""
 
     if ($cleanMode -eq 3) {
-        Empty-Bin
+        Empty-Recycle
     }
 
-    $finishedAt = Get-Date
-    $spaceText = Format-Size -Bytes $cleanedBytes
+    $endTime = Get-Date
+    $duration = $endTime - $startTime
+    $afterBytes = 0
+
+    foreach ($target in $selectedTargets) {
+        $afterBytes += Get-FolderSize $target.Path
+    }
+
+    $freedBytes = $beforeBytes - $afterBytes
+    if ($freedBytes -lt 0) {
+        $freedBytes = 0
+    }
+
+    $beforeText = Format-Size $beforeBytes
+    $afterText = Format-Size $afterBytes
+    $freedText = Format-Size $freedBytes
     $logPath = $null
 
     if ($logSettings.Enabled) {
-        $logPath = Write-CleanupLog `
-            -LogFolder $logSettings.Folder `
-            -TargetPaths $targetPaths `
-            -ModeName (Get-ModeName) `
-            -Cleaned $cleaned `
-            -Skipped $skipped `
-            -SpaceCleaned $spaceText `
-            -StartedAt $startedAt `
-            -FinishedAt $finishedAt
+        $logPath = Save-Log $logSettings.Folder $selectedTargets (Get-ModeText) $cleaned $skipped $beforeText $afterText $freedText $startTime $endTime $duration
     }
 
     Write-Host ""
-    Write-Host "Cleanup completed successfully." -ForegroundColor Green
-    Write-Host ("Mode: {0}" -f (Get-ModeName)) -ForegroundColor Cyan
-    Write-Host ("Cleaned items: {0}" -f $cleaned) -ForegroundColor Green
-    Write-Host ("Skipped items: {0}" -f $skipped) -ForegroundColor Yellow
-    Write-Host ("Estimated space cleaned: {0}" -f $spaceText) -ForegroundColor Green
+	Write-Host "Cleanup complete" -ForegroundColor Green
+	Write-Host "────────────────" -ForegroundColor DarkGray
+	Write-Host ""
+
+	Write-Host ("Mode:        {0}" -f (Get-ModeText)) -ForegroundColor Cyan
+	Write-Host ("Cleaned:     {0}" -f $cleaned) -ForegroundColor Green
+	Write-Host ("Skipped:     {0}" -f $skipped) -ForegroundColor Yellow
+	Write-Host ("Before:      {0}" -f $beforeText) -ForegroundColor White
+	Write-Host ("After:       {0}" -f $afterText) -ForegroundColor White
+	Write-Host ("Freed:       {0}" -f $freedText) -ForegroundColor Green
+	Write-Host ("Time:        {0:N2}s" -f $duration.TotalSeconds) -ForegroundColor Cyan
 
     switch ($cleanMode) {
         1 { Write-Host "The cleaned files were sent to the Recycle Bin." -ForegroundColor Green }
@@ -460,14 +472,16 @@ function Start-Cleaning {
         3 { Write-Host "The cleaned files were sent to the Recycle Bin and the Recycle Bin was emptied." -ForegroundColor Green }
     }
 
-    if ($logSettings.Enabled) {
-        if ($logPath) {
-            Write-Host ("Log saved to: {0}" -f $logPath) -ForegroundColor Cyan
-        }
-        else {
-            Write-Host "The cleanup finished, but the log could not be saved." -ForegroundColor Yellow
-        }
+
+	if ($logSettings.Enabled) {
+		Write-Host ""
+		if ($logPath) {
+			Write-Host ("Log saved:   {0}" -f $logPath) -ForegroundColor Cyan
     }
+		else {
+			Write-Host "Log could not be saved." -ForegroundColor Yellow
+		}
+}
 
     $next = After-CleanupMenu
     switch ($next) {
@@ -477,6 +491,14 @@ function Start-Cleaning {
     }
 }
 
+if (!(Is-Admin)) {
+    Clear-Host
+    Write-Host "This script must be run as Administrator." -ForegroundColor Red
+    Write-Host ""
+    Pause
+    exit
+}
+
 while ($true) {
     Show-MainMenu
     $choice = Read-Host "Select option"
@@ -484,8 +506,8 @@ while ($true) {
     switch ($choice) {
         "1" {
             do {
-                $selection = Pick-Folders
-                $result = Start-Cleaning -Selection $selection
+                $selection = Select-Folders
+                $result = Start-Cleanup $selection
             } while ($result -eq "rerun")
 
             if ($result -eq "exit") {
@@ -504,7 +526,7 @@ while ($true) {
             catch {
                 Write-Host ""
                 Write-Host "Unable to open the GitHub page." -ForegroundColor Red
-                Start-Sleep -Seconds 1
+                Start-Sleep 1
             }
         }
 

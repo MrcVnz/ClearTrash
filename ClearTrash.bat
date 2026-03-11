@@ -1,33 +1,33 @@
 @echo off
-setlocal EnableExtensions
+setlocal
+
+title ClearTrash
 
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-    powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process '%~f0' -Verb RunAs"
     exit /b
 )
 
-set "PS1_FILE=%~dp0ClearTrash.ps1"
+set "SCRIPT_DIR=%~dp0"
+set "PS1_FILE=%SCRIPT_DIR%ClearTrash.ps1"
 
 if not exist "%PS1_FILE%" (
     cls
-    echo Running as Administrator...
+    echo ==================================
+    echo            CLEARTRASH
+    echo ==================================
     echo.
-    echo PowerShell script not found:
+    echo ClearTrash.ps1 was not found.
+    echo.
+    echo Expected file:
     echo %PS1_FILE%
     echo.
-    echo Put ClearTrash.bat and ClearTrash.ps1 in the same folder.
-    timeout /t 3 >nul
+    echo Put both files in the same folder.
+    echo.
+    pause
     exit /b 1
 )
 
-cls
-echo Running as Administrator...
-echo.
-echo Using script:
-echo %PS1_FILE%
-echo.
-
 powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1_FILE%"
-
-exit /b
+exit /b %errorlevel%
