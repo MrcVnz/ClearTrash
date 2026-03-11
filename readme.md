@@ -32,7 +32,7 @@ The idea is simple: choose folders, pick how files should be deleted, and let th
 - multiple deletion modes
 - progress bar during cleanup
 - pause / resume with keyboard input
-- optional logging
+- optional logging with default or custom path
 - shows how much disk space was freed
 
 ---
@@ -52,6 +52,41 @@ Files are removed directly from disk.
 **Recycle + empty**
 
 Files go to the Recycle Bin and the bin is emptied afterwards.
+
+---
+
+## Logging
+
+ClearTrash can optionally generate a cleanup log.
+
+When logging is enabled, the script offers two options:
+
+**Default**
+
+The script automatically creates a `logs` folder in the same directory as the script and stores the log files there.
+
+Example:
+
+```
+ClearTrash
+│
+├ ClearTrash.ps1
+├ ClearTrash.bat
+├ logs
+│ └ ClearTrash_2026-03-11_10-04-07.log
+└ README.md
+```
+
+
+**Custom path**
+
+The user can choose any folder to store the logs.
+
+Example:
+
+C:\Users\YourName\Documents\ClearTrashLogs
+
+If logging is disabled, the cleanup runs normally and no log file is generated.
 
 ---
 
@@ -99,6 +134,9 @@ It avoids common PowerShell execution policy issues and allows users to start th
 <a href="https://github.com/MrcVnz/ClearTrash/archive/refs/tags/v1.0.0.zip">
 <img src="https://img.shields.io/badge/ClearTrash-v.1.0.0-blue?style=for-the-badge">
 </a>
+<a href="https://github.com/MrcVnz/ClearTrash/archive/refs/tags/v1.1.0.zip">
+<img src="https://img.shields.io/badge/ClearTrash-v.1.1.0-blue?style=for-the-badge">
+</a>
 </p>
 
 ---
@@ -110,6 +148,7 @@ ClearTrash
 │
 ├ ClearTrash.ps1
 ├ ClearTrash.bat
+├ logs
 └ README.md
 ```
 
@@ -143,10 +182,16 @@ Instead of writing small isolated scripts, I tried to build something that feels
 
 Some ideas for the future:
 
-- preview mode (scan without deleting)
 - more Windows cache locations
 - configuration file
-- better logging system
+- additional cleanup locations
+- preview mode (scan without deleting)
+
+---
+
+## Version
+
+Current version: **1.1.0**
 
 ---
 
