@@ -69,13 +69,27 @@ Enter the folder:
 cd ClearTrash
 ```
 
-Run the launcher:
+Run the launcher in powershell:
+
+```
+.\ClearTrash.bat
+```
+
+Run the launcher in CMD:
 
 ```
 ClearTrash.bat
 ```
 
 The batch file simply launches the PowerShell script with the correct permissions.
+
+---
+
+### Why a `.bat` launcher?
+
+The project includes a small `.bat` launcher to make the script easier to run.
+
+It avoids common PowerShell execution policy issues and allows users to start the tool with a simple command or double-click, without needing to manually run the PowerShell script.
 
 ---
 
