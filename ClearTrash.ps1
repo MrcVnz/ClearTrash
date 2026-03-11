@@ -20,6 +20,18 @@ Add-Type -AssemblyName Microsoft.VisualBasic
 $githubUrl = "https://github.com/MrcVnz"
 $cleanMode = 1
 
+$scriptRoot = if ($PSScriptRoot) {
+    $PSScriptRoot
+}
+elseif ($MyInvocation.MyCommand.Path) {
+    Split-Path -Parent $MyInvocation.MyCommand.Path
+}
+else {
+    (Get-Location).Path
+}
+
+$defaultLogFolder = Join-Path $scriptRoot "logs"
+
 $targets = @(
     @{ Key = "1"; Name = "User TEMP"; Path = $env:TEMP },
     @{ Key = "2"; Name = "Windows TEMP"; Path = "C:\Windows\Temp" },
@@ -51,10 +63,15 @@ function Get-ModeText {
 }
 
 function Format-Size($bytes) {
+    if ($null -eq $bytes -or $bytes -lt 0) {
+        $bytes = 0
+    }
+
     if ($bytes -ge 1TB) { return "{0:N2} TB" -f ($bytes / 1TB) }
     if ($bytes -ge 1GB) { return "{0:N2} GB" -f ($bytes / 1GB) }
     if ($bytes -ge 1MB) { return "{0:N2} MB" -f ($bytes / 1MB) }
     if ($bytes -ge 1KB) { return "{0:N2} KB" -f ($bytes / 1KB) }
+
     return "$bytes B"
 }
 
@@ -69,6 +86,25 @@ function Get-FolderSize($path) {
 
     try {
         $sum = (Get-ChildItem -LiteralPath $path -Force -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+        if ($null -eq $sum) { return 0 }
+        return [int64]$sum
+    }
+    catch {
+        return 0
+    }
+}
+
+function Get-ItemSize($item) {
+    try {
+        if (-not $item.PSIsContainer) {
+            if ($null -ne $item.Length) {
+                return [int64]$item.Length
+            }
+
+            return 0
+        }
+
+        $sum = (Get-ChildItem -LiteralPath $item.FullName -Force -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
         if ($null -eq $sum) { return 0 }
         return [int64]$sum
     }
@@ -176,78 +212,176 @@ function Change-Mode {
 function Ask-LogSettings {
     $result = @{
         Enabled = $false
-        Folder = ""
+        Folder  = ""
     }
 
     Write-Host ""
-    $saveLog = Read-Host "Save a cleanup log? (Y/N)"
+    $saveLog = Read-Host "Do you want to save a cleanup log? (Y/N)"
 
     if ($saveLog -notmatch '^(?i)y(es)?$') {
         return $result
     }
 
     while ($true) {
+        Show-Header
+        Write-Host "Log options" -ForegroundColor Yellow
+        Write-Host "───────────" -ForegroundColor DarkGray
         Write-Host ""
-        $folder = Read-Host "Log folder (type 0 to cancel)"
+        Write-Host "[1] Default"
+        Write-Host ("    Save in: {0}" -f $defaultLogFolder) -ForegroundColor DarkGray
+        Write-Host "[2] Custom path"
+        Write-Host "    Example: C:\Users\YourName\Documents\ClearTrashLogs" -ForegroundColor DarkGray
+        Write-Host "[0] Cancel log"
+        Write-Host ""
 
-        if ($folder -eq "0") {
-            return $result
-        }
+        $choice = Read-Host "Select option"
 
-        if ([string]::IsNullOrWhiteSpace($folder)) {
-            Write-Host "Invalid folder." -ForegroundColor Red
-            continue
-        }
-
-        if (!(Test-Path -LiteralPath $folder)) {
-            $create = Read-Host "Folder does not exist. Create it? (Y/N)"
-            if ($create -match '^(?i)y(es)?$') {
+        switch ($choice) {
+            "1" {
                 try {
-                    New-Item -ItemType Directory -Path $folder -Force | Out-Null
+                    if (!(Test-Path -LiteralPath $defaultLogFolder)) {
+                        New-Item -ItemType Directory -Path $defaultLogFolder -Force | Out-Null
+                    }
+
+                    if (Test-Path -LiteralPath $defaultLogFolder -PathType Container) {
+                        $result.Enabled = $true
+                        $result.Folder = $defaultLogFolder
+                        return $result
+                    }
+
+                    Write-Host ""
+                    Write-Host "Could not use the default log folder." -ForegroundColor Red
+                    Start-Sleep 1
                 }
                 catch {
-                    Write-Host "Could not create folder." -ForegroundColor Red
-                    continue
+                    Write-Host ""
+                    Write-Host "Could not create the default log folder." -ForegroundColor Red
+                    Start-Sleep 1
                 }
             }
-            else {
-                continue
+
+            "2" {
+                while ($true) {
+                    Show-Header
+                    Write-Host "Custom log path" -ForegroundColor Yellow
+                    Write-Host "───────────────" -ForegroundColor DarkGray
+                    Write-Host ""
+                    Write-Host "Enter the full folder path." -ForegroundColor White
+                    Write-Host "Example: C:\Users\YourName\Documents\ClearTrashLogs" -ForegroundColor DarkGray
+                    Write-Host ""
+
+                    $folder = Read-Host "Custom log folder (type 0 to go back)"
+
+                    if ($folder -eq "0") {
+                        break
+                    }
+
+                    if ([string]::IsNullOrWhiteSpace($folder)) {
+                        Write-Host ""
+                        Write-Host "Invalid folder." -ForegroundColor Red
+                        Start-Sleep 1
+                        continue
+                    }
+
+                    if (!(Test-Path -LiteralPath $folder)) {
+                        $create = Read-Host "Folder does not exist. Create it? (Y/N)"
+                        if ($create -match '^(?i)y(es)?$') {
+                            try {
+                                New-Item -ItemType Directory -Path $folder -Force | Out-Null
+                            }
+                            catch {
+                                Write-Host ""
+                                Write-Host "Could not create folder." -ForegroundColor Red
+                                Start-Sleep 1
+                                continue
+                            }
+                        }
+                        else {
+                            continue
+                        }
+                    }
+
+                    if (Test-Path -LiteralPath $folder -PathType Container) {
+                        $result.Enabled = $true
+                        $result.Folder = $folder
+                        return $result
+                    }
+
+                    Write-Host ""
+                    Write-Host "Invalid folder." -ForegroundColor Red
+                    Start-Sleep 1
+                }
+            }
+
+            "0" {
+                return $result
+            }
+
+            default {
+                Write-Host ""
+                Write-Host "Invalid option." -ForegroundColor Red
+                Start-Sleep 1
             }
         }
-
-        if (Test-Path -LiteralPath $folder -PathType Container) {
-            $result.Enabled = $true
-            $result.Folder = $folder
-            return $result
-        }
-
-        Write-Host "Invalid folder." -ForegroundColor Red
     }
 }
 
-function Save-Log($logFolder, $selectedTargets, $modeText, $cleaned, $skipped, $beforeText, $afterText, $freedText, $startTime, $endTime, $duration) {
+function Write-CleanupLog {
+    param(
+        [string]$LogFolder,
+        [string[]]$TargetPaths,
+        [string]$ModeName,
+        [int]$Cleaned,
+        [int]$Skipped,
+        [string]$SpaceCleaned,
+        [datetime]$StartedAt,
+        [datetime]$FinishedAt,
+        [string[]]$CleanedItems,
+        [string[]]$SkippedItems
+    )
+
     try {
-        $fileName = "ClearTrash_{0}.log" -f $startTime.ToString("yyyy-MM-dd_HH-mm-ss")
-        $logPath = Join-Path $logFolder $fileName
+        $fileName = "ClearTrash_{0}.log" -f $StartedAt.ToString("yyyy-MM-dd_HH-mm-ss")
+        $logPath = Join-Path $LogFolder $fileName
 
-        $lines = @(
-            "ClearTrash Cleanup Log"
-            "----------------------"
-            "Started:  $($startTime.ToString('yyyy-MM-dd HH:mm:ss'))"
-            "Finished: $($endTime.ToString('yyyy-MM-dd HH:mm:ss'))"
-            "Duration: $([Math]::Round($duration.TotalSeconds, 2)) seconds"
-            "Mode:     $modeText"
-            "Cleaned:  $cleaned"
-            "Skipped:  $skipped"
-            "Before:   $beforeText"
-            "After:    $afterText"
-            "Freed:    $freedText"
-            ""
-            "Target folders:"
-        )
+        $lines = @()
+        $lines += "ClearTrash Cleanup Log"
+        $lines += "----------------------"
+        $lines += "Started:  $($StartedAt.ToString('yyyy-MM-dd HH:mm:ss'))"
+        $lines += "Finished: $($FinishedAt.ToString('yyyy-MM-dd HH:mm:ss'))"
+        $lines += "Mode:     $ModeName"
+        $lines += "Cleaned:  $Cleaned"
+        $lines += "Skipped:  $Skipped"
+        $lines += "Space:    $SpaceCleaned"
+        $lines += ""
+        $lines += "Target folders:"
 
-        foreach ($target in $selectedTargets) {
-            $lines += " - $($target.Name): $($target.Path)"
+        foreach ($path in $TargetPaths) {
+            $lines += " - $path"
+        }
+
+        $lines += ""
+        $lines += "Cleaned items:"
+
+        if ($CleanedItems -and $CleanedItems.Count -gt 0) {
+            foreach ($item in $CleanedItems) {
+                $lines += " + $item"
+            }
+        }
+        else {
+            $lines += " + None"
+        }
+
+        $lines += ""
+        $lines += "Skipped items:"
+
+        if ($SkippedItems -and $SkippedItems.Count -gt 0) {
+            foreach ($item in $SkippedItems) {
+                $lines += " - $item"
+            }
+        }
+        else {
+            $lines += " - None"
         }
 
         Set-Content -LiteralPath $logPath -Value $lines -Encoding UTF8
@@ -357,18 +491,18 @@ function Start-Cleanup($selection) {
     }
 
     Show-Header
-	Write-Host "Starting cleanup" -ForegroundColor Cyan
-	Write-Host "────────────────" -ForegroundColor DarkGray
-	Write-Host ""
+    Write-Host "Starting cleanup" -ForegroundColor Cyan
+    Write-Host "────────────────" -ForegroundColor DarkGray
+    Write-Host ""
 
-	Write-Host "Targets:" -ForegroundColor Yellow
-	foreach ($target in $selectedTargets) {
-    Write-Host (" • {0}" -f $target.Name)
-}
+    Write-Host "Targets:" -ForegroundColor Yellow
+    foreach ($target in $selectedTargets) {
+        Write-Host (" • {0}" -f $target.Name)
+    }
 
-	Write-Host ""
-	Write-Host "Press SPACE to pause" -ForegroundColor DarkGray
-	Write-Host ""
+    Write-Host ""
+    Write-Host "Press SPACE to pause" -ForegroundColor DarkGray
+    Write-Host ""
 
     $items = @()
 
@@ -381,6 +515,9 @@ function Start-Cleanup($selection) {
     $total = $items.Count
     $cleaned = 0
     $skipped = 0
+    $cleanedBytes = 0L
+    $cleanedItems = New-Object System.Collections.Generic.List[string]
+    $skippedItems = New-Object System.Collections.Generic.List[string]
 
     if ($total -eq 0) {
         Write-Host "Nothing was found to clean." -ForegroundColor Yellow
@@ -392,40 +529,47 @@ function Start-Cleanup($selection) {
         }
     }
 
-for ($i = 0; $i -lt $items.Count; $i++) {
+    for ($i = 0; $i -lt $items.Count; $i++) {
+        $item = $items[$i]
+        $current = $i + 1
 
-    $item = $items[$i]
-    $current = $i + 1
+        Show-ProgressBar $current $total
 
-    Show-ProgressBar $current $total
+        try {
+            if ([Console]::KeyAvailable) {
+                $key = [Console]::ReadKey($true)
+                if ($key.Key -eq [ConsoleKey]::Spacebar) {
+                    Write-Host ""
 
-    if ([Console]::KeyAvailable) {
-        $key = [Console]::ReadKey($true)
-        if ($key.Key -eq [ConsoleKey]::Spacebar) {
+                    $pauseChoice = Pause-Menu
+                    if ($pauseChoice -eq "2") {
+                        return "menu"
+                    }
 
-            Write-Host ""
-
-            $pauseChoice = Pause-Menu
-            if ($pauseChoice -eq "2") {
-                return "menu"
+                    Show-Header
+                    Write-Host "Resuming cleanup..." -ForegroundColor Cyan
+                    Write-Host ""
+                }
             }
+        }
+        catch {
+        }
 
-            Show-Header
-            Write-Host "Resuming cleanup..." -ForegroundColor Cyan
-            Write-Host ""
+        try {
+            $itemSize = Get-ItemSize $item
+            Remove-SelectedItem $item
+
+            $cleaned++
+            $cleanedBytes += $itemSize
+            $cleanedItems.Add($item.FullName)
+        }
+        catch {
+            $skipped++
+            $skippedItems.Add($item.FullName)
         }
     }
 
-    try {
-        Remove-SelectedItem $item
-        $cleaned++
-    }
-    catch {
-        $skipped++
-    }
-}
-
-Write-Host ""
+    Write-Host ""
 
     if ($cleanMode -eq 3) {
         Empty-Recycle
@@ -439,32 +583,38 @@ Write-Host ""
         $afterBytes += Get-FolderSize $target.Path
     }
 
-    $freedBytes = $beforeBytes - $afterBytes
-    if ($freedBytes -lt 0) {
-        $freedBytes = 0
-    }
-
+    $freedBytes = $cleanedBytes
     $beforeText = Format-Size $beforeBytes
     $afterText = Format-Size $afterBytes
     $freedText = Format-Size $freedBytes
     $logPath = $null
 
     if ($logSettings.Enabled) {
-        $logPath = Save-Log $logSettings.Folder $selectedTargets (Get-ModeText) $cleaned $skipped $beforeText $afterText $freedText $startTime $endTime $duration
+        $logPath = Write-CleanupLog `
+            -LogFolder $logSettings.Folder `
+            -TargetPaths ($selectedTargets | ForEach-Object { $_.Path }) `
+            -ModeName (Get-ModeText) `
+            -Cleaned $cleaned `
+            -Skipped $skipped `
+            -SpaceCleaned $freedText `
+            -StartedAt $startTime `
+            -FinishedAt $endTime `
+            -CleanedItems $cleanedItems `
+            -SkippedItems $skippedItems
     }
 
     Write-Host ""
-	Write-Host "Cleanup complete" -ForegroundColor Green
-	Write-Host "────────────────" -ForegroundColor DarkGray
-	Write-Host ""
+    Write-Host "Cleanup complete" -ForegroundColor Green
+    Write-Host "────────────────" -ForegroundColor DarkGray
+    Write-Host ""
 
-	Write-Host ("Mode:        {0}" -f (Get-ModeText)) -ForegroundColor Cyan
-	Write-Host ("Cleaned:     {0}" -f $cleaned) -ForegroundColor Green
-	Write-Host ("Skipped:     {0}" -f $skipped) -ForegroundColor Yellow
-	Write-Host ("Before:      {0}" -f $beforeText) -ForegroundColor White
-	Write-Host ("After:       {0}" -f $afterText) -ForegroundColor White
-	Write-Host ("Freed:       {0}" -f $freedText) -ForegroundColor Green
-	Write-Host ("Time:        {0:N2}s" -f $duration.TotalSeconds) -ForegroundColor Cyan
+    Write-Host ("Mode:        {0}" -f (Get-ModeText)) -ForegroundColor Cyan
+    Write-Host ("Cleaned:     {0}" -f $cleaned) -ForegroundColor Green
+    Write-Host ("Skipped:     {0}" -f $skipped) -ForegroundColor Yellow
+    Write-Host ("Before:      {0}" -f $beforeText) -ForegroundColor White
+    Write-Host ("After:       {0}" -f $afterText) -ForegroundColor White
+    Write-Host ("Freed:       {0}" -f $freedText) -ForegroundColor Green
+    Write-Host ("Time:        {0:N2}s" -f $duration.TotalSeconds) -ForegroundColor Cyan
 
     switch ($cleanMode) {
         1 { Write-Host "The cleaned files were sent to the Recycle Bin." -ForegroundColor Green }
@@ -472,16 +622,16 @@ Write-Host ""
         3 { Write-Host "The cleaned files were sent to the Recycle Bin and the Recycle Bin was emptied." -ForegroundColor Green }
     }
 
+    if ($logSettings.Enabled) {
+        Write-Host ""
 
-	if ($logSettings.Enabled) {
-		Write-Host ""
-		if ($logPath) {
-			Write-Host ("Log saved:   {0}" -f $logPath) -ForegroundColor Cyan
+        if ($logPath) {
+            Write-Host ("Log saved:   {0}" -f $logPath) -ForegroundColor Cyan
+        }
+        else {
+            Write-Host "Log could not be saved." -ForegroundColor Yellow
+        }
     }
-		else {
-			Write-Host "Log could not be saved." -ForegroundColor Yellow
-		}
-}
 
     $next = After-CleanupMenu
     switch ($next) {
