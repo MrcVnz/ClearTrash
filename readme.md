@@ -175,14 +175,14 @@ It avoids common PowerShell execution policy issues and allows users to start th
 ## Download
 
 <p align="center">
-<a href="https://github.com/MrcVnz/ClearTrash/releases/download/v1.2.0/ClearTrash-v1.2.0.zip">
+<a href="https://github.com/MrcVnz/ClearTrash/releases/download/v1.2.0/ClearTrash-v.1.2.0.zip">
 <img src="https://img.shields.io/badge/ClearTrash-v.1.2.0-blue?style=for-the-badge">
-</a>
-<a href="https://github.com/MrcVnz/ClearTrash/archive/refs/tags/v1.0.0.zip">
-<img src="https://img.shields.io/badge/ClearTrash-v.1.0.0-blue?style=for-the-badge">
 </a>
 <a href="https://github.com/MrcVnz/ClearTrash/releases/download/v1.1.0/ClearTrash-v1.1.0.zip">
 <img src="https://img.shields.io/badge/ClearTrash-v.1.1.0-blue?style=for-the-badge">
+</a>
+<a href="https://github.com/MrcVnz/ClearTrash/archive/refs/tags/v1.0.0.zip">
+<img src="https://img.shields.io/badge/ClearTrash-v.1.0.0-blue?style=for-the-badge">
 </a>
 </p>
 
