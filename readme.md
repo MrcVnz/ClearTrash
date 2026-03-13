@@ -32,8 +32,22 @@ The idea is simple: choose folders, pick how files should be deleted, and let th
 - multiple deletion modes
 - progress bar during cleanup
 - pause / resume with keyboard input
-- optional logging with default or custom path
+- optional logging system
+- configurable behavior using `ClearTrash.config.json`
+- preview before cleanup
+- retry mechanism for failed deletions
 - shows how much disk space was freed
+
+ClearTrash also includes a **configuration file** that allows adjusting internal behavior without modifying the script.
+
+Example settings that can be configured:
+
+- default log directory
+- retry attempts for failed deletions
+- retry delay
+- confirmation prompts
+- JSON log generation
+- limits for preview and detailed log entries
 
 ---
 
@@ -57,7 +71,16 @@ Files go to the Recycle Bin and the bin is emptied afterwards.
 
 ## Logging
 
-ClearTrash can optionally generate a cleanup log.
+ClearTrash can generate cleanup logs.
+
+Logs may include:
+
+- cleanup summary
+- disk space freed
+- failed deletions
+- detailed list of removed files
+
+The logging system can generate **standard logs and JSON logs**, depending on the configuration.
 
 When logging is enabled, the script offers two options:
 
@@ -72,11 +95,11 @@ ClearTrash
 │
 ├ ClearTrash.ps1
 ├ ClearTrash.bat
+├ ClearTrash.config.json
 ├ logs
 │ └ ClearTrash_2026-03-11_10-04-07.log
 └ README.md
 ```
-
 
 **Custom path**
 
@@ -84,9 +107,30 @@ The user can choose any folder to store the logs.
 
 Example:
 
+```
 C:\Users\YourName\Documents\ClearTrashLogs
+```
 
 If logging is disabled, the cleanup runs normally and no log file is generated.
+
+---
+
+## Configuration
+
+ClearTrash includes a configuration file:
+
+`ClearTrash.config.json`
+
+This file allows modifying some internal behavior of the tool without changing the script.
+
+Examples of configurable options:
+
+- default log directory
+- retry attempts
+- retry delay
+- confirmation prompts
+- preview limits
+- enabling JSON logs
 
 ---
 
@@ -131,6 +175,9 @@ It avoids common PowerShell execution policy issues and allows users to start th
 ## Download
 
 <p align="center">
+<a href="https://github.com/MrcVnz/ClearTrash/releases/download/v1.2.0/ClearTrash-v1.2.0.zip">
+<img src="https://img.shields.io/badge/ClearTrash-v.1.2.0-blue?style=for-the-badge">
+</a>
 <a href="https://github.com/MrcVnz/ClearTrash/archive/refs/tags/v1.0.0.zip">
 <img src="https://img.shields.io/badge/ClearTrash-v.1.0.0-blue?style=for-the-badge">
 </a>
@@ -148,6 +195,7 @@ ClearTrash
 │
 ├ ClearTrash.ps1
 ├ ClearTrash.bat
+├ ClearTrash.config.json
 ├ logs
 └ README.md
 ```
@@ -161,10 +209,15 @@ Main script responsible for:
 - deletion logic
 - progress bar
 - logging
+- configuration loading
 
 **ClearTrash.bat**
 
 Simple launcher that starts the PowerShell script.
+
+**ClearTrash.config.json**
+
+Configuration file used to control some internal behavior of the tool.
 
 ---
 
@@ -178,20 +231,10 @@ Instead of writing small isolated scripts, I tried to build something that feels
 
 ---
 
-## Things that could be improved
-
-Some ideas for the future:
-
-- more Windows cache locations
-- configuration file
-- additional cleanup locations
-- preview mode (scan without deleting)
-
----
 
 ## Version
 
-Current version: **1.1.0**
+Current version: **1.2.0**
 
 ---
 

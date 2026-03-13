@@ -1,0 +1,13 @@
+{
+    "defaultLogFolder": ".\\ClearTrashLogs",
+    "retryCount": 1,
+    "disabledDefaultTargets": [],
+    "maxDetailedEntries": 5000,
+    "writeJsonLog": true,
+    "requireConfirmation": true,
+    "previewFullLog": true,
+    "previewSampleLimit": 15,
+    "customTargets": [],
+    "retryDelayMs": 200,
+    "useUnicode": true
+}
