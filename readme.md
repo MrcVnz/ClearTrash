@@ -234,7 +234,7 @@ Instead of writing small isolated scripts, I tried to build something that feels
 
 ## Version
 
-Current version: **1.2.0**
+Current version: **1.2.0** (LAST UPDATE OF THIS PROJECT)
 
 ---
 
